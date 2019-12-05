@@ -94,11 +94,10 @@ static NSMutableDictionary<NSString *, ALAdView *> *ALGlobalAdViews;
     zoneIdentifier = ZONE_FROM_INFO(info);
     
     // Create adview based off of zone (if any)
-    self.adView = [[self class] adViewForFrame: [self rectFromAppLovinAdSize: adSize]
-                                        adSize: adSize
-                                zoneIdentifier: zoneIdentifier
-                                   customEvent: self
-                                           sdk: self.sdk];
+    self.adView = [[self class] adViewForAdSize: adSize
+                                 zoneIdentifier: zoneIdentifier
+                                    customEvent: self
+                                            sdk: self.sdk];
     
     // Use token API
     if ( hasAdMarkup )
@@ -141,20 +140,6 @@ static NSMutableDictionary<NSString *, ALAdView *> *ALGlobalAdViews;
     return adSize;
 }
 
-- (CGRect)rectFromAppLovinAdSize:(ALAdSize *)alAdSize
-{
-    // Default to standard banner size
-    CGRect adRect = CGRectMake(0, 0, 320, 50);
-    
-    if (alAdSize == ALAdSize.leader) {
-        adRect = CGRectMake(0, 0, 728, 90);
-    } else if (alAdSize == ALAdSize.mrec) {
-        adRect = CGRectMake(0, 0, 300, 250);
-    }
-    
-    return adRect;
-}
-
 - (MOPUBErrorCode)toMoPubErrorCode:(int)appLovinErrorCode
 {
     if ( appLovinErrorCode == kALErrorCodeNoFill )
@@ -190,11 +175,10 @@ static NSMutableDictionary<NSString *, ALAdView *> *ALGlobalAdViews;
     }
 }
 
-+ (ALAdView *)adViewForFrame:(CGRect)frame
-                      adSize:(ALAdSize *)adSize
-              zoneIdentifier:(NSString *)zoneIdentifier
-                 customEvent:(AppLovinBannerCustomEvent *)customEvent
-                         sdk:(ALSdk *)sdk
++ (ALAdView *)adViewForAdSize:(ALAdSize *)adSize
+               zoneIdentifier:(NSString *)zoneIdentifier
+                  customEvent:(AppLovinBannerCustomEvent *)customEvent
+                          sdk:(ALSdk *)sdk
 {
     ALAdView *adView;
     
@@ -205,14 +189,14 @@ static NSMutableDictionary<NSString *, ALAdView *> *ALGlobalAdViews;
     }
     else
     {
-        adView = [[ALAdView alloc] initWithFrame: frame size: adSize sdk: sdk];
         // If this is a custom zone
         if ( zoneIdentifier.length > 0 )
         {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wundeclared-selector"
-            [adView performSelector: @selector(setZoneIdentifier:) withObject: zoneIdentifier];
-#pragma clang diagnostic pop
+            adView = [[ALAdView alloc] initWithSdk: sdk size: adSize zoneIdentifier: zoneIdentifier];
+        }
+        else
+        {
+            adView = [[ALAdView alloc] initWithSdk: sdk size: adSize];
         }
         
         ALGlobalAdViews[zoneIdentifier] = adView;

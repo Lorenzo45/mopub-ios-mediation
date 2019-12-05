@@ -18,7 +18,7 @@
 
 #define ADCOLONY_INITIALIZATION_TIMEOUT dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC)
 
-@interface AdColonyRewardedVideoCustomEvent () <AdColonyInterstitialDelegate>
+@interface AdColonyRewardedVideoCustomEvent ()
 
 @property (nonatomic, retain) AdColonyInterstitial *ad;
 @property (nonatomic, retain) AdColonyZone *zone;
@@ -31,80 +31,114 @@
 - (void)initializeSdkWithParameters:(NSDictionary *)parameters {
     // Do not wait for the callback since this method may be run on app
     // launch on the main thread.
-    [self initializeSdkWithParameters:parameters callback:^(NSError *error){
-        if (error) {
-            MPLogEvent([MPLogEvent error:error message:@"AdColony SDK initialization failed."]);
-        } else {
-            MPLogInfo(@"AdColony SDK initialization complete");
-        }
+    [self initializeSdkWithParameters:parameters callback:^{
+        MPLogInfo(@"AdColony SDK initialization complete");
     }];
 }
 
-- (void)initializeSdkWithParameters:(NSDictionary *)parameters callback:(void(^)(NSError *error))completionCallback {
-    NSString * const appId      = parameters[ADC_APPLICATION_ID_KEY];
-    NSString * const zoneId     = parameters[ADC_ZONE_ID_KEY];
-    NSArray  * const allZoneIds = parameters[ADC_ALL_ZONE_IDS_KEY];
-    NSString * const userId     = [parameters objectForKey:ADC_USER_ID_KEY]; // Optional
+- (void)initializeSdkWithParameters:(NSDictionary *)parameters callback:(void(^)(void))completionCallback {
+    NSString *appId = [parameters objectForKey:@"appId"];
+    NSArray *allZoneIds = [parameters objectForKey:@"allZoneIds"];
     
-    NSError *appIdError = [AdColonyAdapterConfiguration validateParameter:appId withName:@"appId" forOperation:@"rewarded video ad request"];
-    if (appIdError) {
-        if (completionCallback) {
-            completionCallback(appIdError);
-        }
+    if (![self paramsAreValid:appId withAllZoneIds:allZoneIds]) {
         return;
     }
     
-    NSError *zoneIdError = [AdColonyAdapterConfiguration validateParameter:zoneId withName:@"zoneId" forOperation:@"rewarded video ad request"];
-    if (zoneIdError) {
-        if (completionCallback) {
-            completionCallback(zoneIdError);
-        }
-        return;
-    }
-    self.zoneId = zoneId;
+    NSString *userId = [parameters objectForKey:@"userId"];
     
-    NSError *allZoneIdsError = [AdColonyAdapterConfiguration validateZoneIds:allZoneIds forOperation:@"rewarded video ad request"];
-    if (allZoneIdsError) {
-        if (completionCallback) {
-            completionCallback(appIdError);
-        }
-        return;
-    }
-    
-    MPLogAdEvent([MPLogEvent adLoadAttemptForAdapter:NSStringFromClass(self.class)
-                                       dspCreativeId:nil
-                                             dspName:nil], self.zoneId);
-    [AdColonyAdapterConfiguration updateInitializationParameters:parameters];
-    [AdColonyController initializeAdColonyCustomEventWithAppId:appId
-                                                    allZoneIds:allZoneIds
-                                                        userId:userId
-                                                      callback:completionCallback];
+    [AdColonyController initializeAdColonyCustomEventWithAppId:appId allZoneIds:allZoneIds userId:userId callback:completionCallback];
 }
 
-- (void)requestRewardedVideoWithCustomEventInfo:(NSDictionary *)info adMarkup:(NSString *)adMarkup {
+- (NSError *)createErrorWith:(NSString *)description andReason:(NSString *)reason andSuggestion:(NSString *)suggestion {
+    NSDictionary *userInfo = @{
+                               NSLocalizedDescriptionKey: NSLocalizedString(description, nil),
+                               NSLocalizedFailureReasonErrorKey: NSLocalizedString(reason, nil),
+                               NSLocalizedRecoverySuggestionErrorKey: NSLocalizedString(suggestion, nil)
+                               };
+    
+    return [NSError errorWithDomain:NSStringFromClass([self class]) code:0 userInfo:userInfo];
+}
+
+- (void)requestRewardedVideoWithCustomEventInfo:(NSDictionary *)info {
+    NSString *appId = [info objectForKey:@"appId"];
+    NSArray *allZoneIds = [info objectForKey:@"allZoneIds"];
+    
+    if (![self paramsAreValid:appId withAllZoneIds:allZoneIds]) {
+        return;
+    }
+    
+    self.zoneId = [info objectForKey:@"zoneId"];
+    [self assignFirstAvailableZoneIdIfNecessary:allZoneIds];
+    
+    // Cache the initialization parameters
+    [AdColonyAdapterConfiguration updateInitializationParameters:info];
+    
+    // Update the user ID
     NSString *customerId = [self.delegate customerIdForRewardedVideoCustomEvent:self];
     NSMutableDictionary *newInfo = [NSMutableDictionary dictionaryWithDictionary:info];
     newInfo[@"userId"] = customerId;
     
-    [self initializeSdkWithParameters:newInfo callback:^(NSError *error) {
-        if (error) {
-            MPLogAdEvent([MPLogEvent adLoadFailedForAdapter:NSStringFromClass(self.class)
-                                                      error:error], self.zoneId);
-            [self.delegate rewardedVideoDidFailToLoadAdForCustomEvent:self error:error];
-            return;
-        }
+    [self initializeSdkWithParameters:newInfo callback:^{
         
         AdColonyInstanceMediationSettings *settings = [self.delegate instanceMediationSettingsForClass:[AdColonyInstanceMediationSettings class]];
         BOOL showPrePopup = (settings) ? settings.showPrePopup : NO;
         BOOL showPostPopup = (settings) ? settings.showPostPopup : NO;
         
-        AdColonyAdOptions *adOptions = [AdColonyAdOptions new];
-        adOptions.showPrePopup = showPrePopup;
-        adOptions.showPostPopup = showPostPopup;
+        AdColonyAdOptions *options = [AdColonyAdOptions new];
+        options.showPrePopup = showPrePopup;
+        options.showPostPopup = showPostPopup;
         
-       [AdColony requestInterstitialInZone:self.zoneId
-                                   options:adOptions
-                               andDelegate:self];
+        __weak AdColonyRewardedVideoCustomEvent *weakSelf = self;
+        
+        [AdColony requestInterstitialInZone:[self zoneId] options:options success:^(AdColonyInterstitial * _Nonnull ad) {
+            
+            MPLogAdEvent([MPLogEvent adLoadAttemptForAdapter:NSStringFromClass(self.class) dspCreativeId:nil dspName:nil], [self getAdNetworkId]);
+            
+            weakSelf.zone = [AdColony zoneForID:[self getAdNetworkId]];
+            weakSelf.ad = ad;
+            
+            [ad setOpen:^{
+                [weakSelf.delegate rewardedVideoWillAppearForCustomEvent:weakSelf];
+                MPLogAdEvent([MPLogEvent adWillAppearForAdapter:NSStringFromClass(self.class)], [self getAdNetworkId]);
+
+                [weakSelf.delegate rewardedVideoDidAppearForCustomEvent:weakSelf];
+                
+                MPLogAdEvent([MPLogEvent adShowSuccessForAdapter:NSStringFromClass(self.class)], [self getAdNetworkId]);
+                MPLogAdEvent([MPLogEvent adDidAppearForAdapter:NSStringFromClass(self.class)], [self getAdNetworkId]);
+            }];
+            [ad setClose:^{
+                MPLogAdEvent([MPLogEvent adWillDisappearForAdapter:NSStringFromClass(self.class)], [self getAdNetworkId]);
+                [weakSelf.delegate rewardedVideoWillDisappearForCustomEvent:weakSelf];
+
+                MPLogAdEvent([MPLogEvent adDidDisappearForAdapter:NSStringFromClass(self.class)], [self getAdNetworkId]);
+                [weakSelf.delegate rewardedVideoDidDisappearForCustomEvent:weakSelf];
+            }];
+            [ad setExpire:^{
+                [weakSelf.delegate rewardedVideoDidExpireForCustomEvent:weakSelf];
+            }];
+            [ad setLeftApplication:^{
+                [weakSelf.delegate rewardedVideoWillLeaveApplicationForCustomEvent:weakSelf];
+            }];
+            [ad setClick:^{
+                [weakSelf.delegate rewardedVideoDidReceiveTapEventForCustomEvent:weakSelf];
+                MPLogAdEvent([MPLogEvent adTappedForAdapter:NSStringFromClass(self.class)], [self getAdNetworkId]);
+            }];
+            
+            [weakSelf.zone setReward:^(BOOL success, NSString * _Nonnull name, int amount) {
+                if (!success) {
+                    MPLogInfo(@"AdColony reward failure in zone %@", [self getAdNetworkId]);
+                    return;
+                }
+                [weakSelf.delegate rewardedVideoShouldRewardUserForCustomEvent:weakSelf reward:[[MPRewardedVideoReward alloc] initWithCurrencyType:name amount:@(amount)]];
+            }];
+            
+            [weakSelf.delegate rewardedVideoDidLoadAdForCustomEvent:weakSelf];
+            MPLogAdEvent([MPLogEvent adLoadSuccessForAdapter:NSStringFromClass(self.class)], [self getAdNetworkId]);
+        } failure:^(AdColonyAdRequestError * _Nonnull error) {
+            weakSelf.ad = nil;
+            [weakSelf.delegate rewardedVideoDidFailToLoadAdForCustomEvent:weakSelf error:error];
+            MPLogAdEvent([MPLogEvent adLoadFailedForAdapter:NSStringFromClass(self.class) error:error], [self getAdNetworkId]);
+        }];
     }];
 }
 
@@ -113,79 +147,68 @@
 }
 
 - (void)presentRewardedVideoFromViewController:(UIViewController *)viewController {
-    MPLogAdEvent([MPLogEvent adShowAttemptForAdapter:NSStringFromClass(self.class)], self.zoneId);
     
+    MPLogAdEvent([MPLogEvent adShowAttemptForAdapter:NSStringFromClass(self.class)], [self getAdNetworkId]);
+
     if (self.ad) {
         if (![self.ad showWithPresentingViewController:viewController]) {
             NSError *error = [NSError errorWithDomain:MoPubRewardedVideoAdsSDKDomain code:MPRewardedVideoAdErrorUnknown userInfo:nil];
-            MPLogAdEvent([MPLogEvent adShowFailedForAdapter:NSStringFromClass(self.class)
-                                                      error:error], self.zoneId);
+            
+            MPLogAdEvent([MPLogEvent adShowFailedForAdapter:NSStringFromClass(self.class) error:error], [self getAdNetworkId]);
             [self.delegate rewardedVideoDidFailToPlayForCustomEvent:self error:error];
         }
     } else {
         NSError *error = [NSError errorWithDomain:MoPubRewardedVideoAdsSDKDomain code:MPRewardedVideoAdErrorNoAdsAvailable userInfo:nil];
-        MPLogAdEvent([MPLogEvent adShowFailedForAdapter:NSStringFromClass(self.class)
-                                                  error:error], self.zoneId);
+
+        MPLogAdEvent([MPLogEvent adShowFailedForAdapter:NSStringFromClass(self.class) error:error], [self getAdNetworkId]);
         [self.delegate rewardedVideoDidFailToPlayForCustomEvent:self error:error];
     }
 }
 
-#pragma mark - AdColony Interstitial Delegate Methods
-
-- (void)adColonyInterstitialDidLoad:(AdColonyInterstitial * _Nonnull)interstitial {
-    self.zone = [AdColony zoneForID:self.zoneId];
-    self.ad = interstitial;
-
-    __weak AdColonyRewardedVideoCustomEvent *weakSelf = self;
-    [weakSelf.zone setReward:^(BOOL success, NSString * _Nonnull name, int amount) {
-        if (!success) {
-            MPLogInfo(@"AdColony set reward failure in zone %@", weakSelf.zoneId);
-            return;
-        }
-        [self.delegate rewardedVideoShouldRewardUserForCustomEvent:self reward:[[MPRewardedVideoReward alloc] initWithCurrencyType:name amount:@(amount)]];
-    }];
-
-    MPLogAdEvent([MPLogEvent adLoadSuccessForAdapter:NSStringFromClass(self.class)], self.zoneId);
-    [self.delegate rewardedVideoDidLoadAdForCustomEvent:weakSelf];
+- (NSString *) getAdNetworkId {
+    return self.zoneId;
 }
 
-- (void)adColonyInterstitialDidFailToLoad:(AdColonyAdRequestError * _Nonnull)error {
-    self.ad = nil;
-    MPLogAdEvent([MPLogEvent adLoadFailedForAdapter:NSStringFromClass(self.class)
-                                              error:error], self.zoneId);
-    [self.delegate rewardedVideoDidFailToLoadAdForCustomEvent:self error:error];
-}
-
-- (void)adColonyInterstitialWillOpen:(AdColonyInterstitial * _Nonnull)interstitial {
-    MPLogAdEvent([MPLogEvent adWillAppearForAdapter:NSStringFromClass(self.class)], self.zoneId);
-    [self.delegate rewardedVideoWillAppearForCustomEvent:self];
-
-    MPLogAdEvent([MPLogEvent adShowSuccessForAdapter:NSStringFromClass(self.class)], self.zoneId);
-    MPLogAdEvent([MPLogEvent adDidAppearForAdapter:NSStringFromClass(self.class)], self.zoneId);
-    [self.delegate rewardedVideoDidAppearForCustomEvent:self];
-}
-
-- (void)adColonyInterstitialDidClose:(AdColonyInterstitial * _Nonnull)interstitial {
-    MPLogAdEvent([MPLogEvent adWillDisappearForAdapter:NSStringFromClass(self.class)], self.zoneId);
-    [self.delegate rewardedVideoWillDisappearForCustomEvent:self];
+- (BOOL) paramsAreValid:(NSString *)appId withAllZoneIds:(NSArray *)allZoneIds {
+    // Fail if app id is missing
+    if (appId == nil || [appId length] == 0) {
+        [self logAndFailAdapters:@"App Id"];
+        return false;
+    }
     
-    MPLogAdEvent([MPLogEvent adDidDisappearForAdapter:NSStringFromClass(self.class)], self.zoneId);
-    [self.delegate rewardedVideoDidDisappearForCustomEvent:self];
+    // Fail if allZoneIds array is missing a valid first element
+    if (![self hasValidFirstElement:allZoneIds]) {
+        [self logAndFailAdapters:@"Zone Id"];
+        return false;
+    }
+    return true;
 }
 
-- (void)adColonyInterstitialExpired:(AdColonyInterstitial * _Nonnull)interstitial {
-    MPLogInfo(@"AdColony Rewarded Video has expired");
-    [self.delegate rewardedVideoDidExpireForCustomEvent:self];
+- (void) assignFirstAvailableZoneIdIfNecessary:(NSArray *)allZoneIds {
+    if ((self.zoneId == nil || [self.zoneId length] == 0)) {
+        self.zoneId = allZoneIds[0];
+    }
 }
 
-- (void)adColonyInterstitialWillLeaveApplication:(AdColonyInterstitial * _Nonnull)interstitial {
-    MPLogAdEvent([MPLogEvent adWillLeaveApplicationForAdapter:NSStringFromClass(self.class)], self.zoneId);
-    [self.delegate rewardedVideoWillLeaveApplicationForCustomEvent:self];
+- (BOOL) hasValidFirstElement:(NSArray *)allZoneIds {
+    if (allZoneIds != nil && allZoneIds.count > 0) {
+        NSString *firstZoneId = allZoneIds[0];
+        if (firstZoneId != nil || [firstZoneId length] > 0) {
+            return true;
+        }
+    }
+    [self logAndFailAdapters:@"Zone Id"];
+    return false;
 }
 
-- (void)adColonyInterstitialDidReceiveClick:(AdColonyInterstitial * _Nonnull)interstitial {
-    MPLogAdEvent([MPLogEvent adTappedForAdapter:NSStringFromClass(self.class)], self.zoneId);
-    [self.delegate rewardedVideoDidReceiveTapEventForCustomEvent:self];
+- (void) logAndFailAdapters:(NSString *)missingParam {
+    NSError *error = [self createErrorWith:@"AdColony adapter failed to request rewarded video"
+                                 andReason:[NSString stringWithFormat:@"%@ is nil/empty", missingParam]
+                             andSuggestion:[NSString stringWithFormat:@"Make sure the %@ is configured on the MoPub UI.", missingParam]];
+    
+    MPLogDebug(@"%@. %@. %@", error.localizedDescription, error.localizedFailureReason, error.localizedRecoverySuggestion);
+    [self.delegate rewardedVideoDidFailToLoadAdForCustomEvent:self error:error];
+    return;
 }
 
 @end

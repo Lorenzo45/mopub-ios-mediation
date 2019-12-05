@@ -13,13 +13,15 @@
     #import "MPNativeAdAdapter.h"
 #endif
 
-@class FBNativeAdBase;
+@class FBNativeAd;
+
+extern NSString *const kFBVideoAdsEnabledKey;
 
 @interface FacebookNativeAdAdapter : NSObject <MPNativeAdAdapter>
 
 @property (nonatomic, weak) id<MPNativeAdAdapterDelegate> delegate;
-@property (nonatomic, readonly) FBNativeAdBase *fbNativeAdBase;
+@property (nonatomic, readonly) FBNativeAd *fbNativeAd;
 
-- (instancetype)initWithFBNativeAdBase:(FBNativeAdBase *)fbNativeAdBase adProperties:(NSDictionary *)adProps;
+- (instancetype)initWithFBNativeAd:(FBNativeAd *)fbNativeAd adProperties:(NSDictionary *)adProps;
 
 @end

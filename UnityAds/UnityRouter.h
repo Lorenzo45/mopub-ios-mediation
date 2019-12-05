@@ -8,11 +8,12 @@
 #import <Foundation/Foundation.h>
 #import <UnityAds/UnityAds.h>
 #import <UnityAds/UnityAdsExtended.h>
+#import <UnityAds/UADSBanner.h>
 
 @protocol UnityRouterDelegate;
 @class UnityAdsInstanceMediationSettings;
 
-@interface UnityRouter : NSObject <UnityAdsExtendedDelegate>
+@interface UnityRouter : NSObject <UnityAdsExtendedDelegate, UnityAdsBannerDelegate>
 
 @property NSString* currentPlacementId;
 
@@ -20,6 +21,7 @@
 
 - (void)initializeWithGameId:(NSString *)gameId;
 - (void)requestVideoAdWithGameId:(NSString *)gameId placementId:(NSString *)placementId delegate:(id<UnityRouterDelegate>)delegate;
+- (void)requestBannerAdWithGameId:(NSString *)gameId placementId:(NSString *)placementId delegate:(id<UnityAdsBannerDelegate>)delegate;
 - (BOOL)isAdAvailableForPlacementId:(NSString *)placementId;
 - (void)presentVideoAdFromViewController:(UIViewController *)viewController customerId:(NSString *)customerId placementId:(NSString *)placementId settings:(UnityAdsInstanceMediationSettings *)settings delegate:(id<UnityRouterDelegate>)delegate;
 - (void)clearDelegate:(id<UnityRouterDelegate>)delegate;

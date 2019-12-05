@@ -1,4 +1,26 @@
 ## Changelog
+  * 7.52.0.2
+    * Map banner ad sizes starting from largest height x width.
+
+  * 7.52.0.1
+    * Expose `setNpaString:` in `GoogleAdMobAdapterConfiguration.h` so publishers can set a new npa without re-initializing the MoPub SDK. 
+
+  * 7.52.0.0
+    * This version of the adapters has been certified with AdMob 7.52.0.
+
+  * 7.51.0.0
+    * This version of the adapters has been certified with AdMob 7.51.0.
+
+  * 7.50.0.1
+    * Stop implementing deprecated request API.
+
+  * 7.50.0.0
+    * This version of the adapters has been certified with AdMob 7.50.0 and is compatible with iOS 13.
+
+  * 7.49.0.0
+    * This version of the adapters has been certified with AdMob 7.49.0.
+    * Use ad sizes forwarded from the MoPub SDK instead of the ad server. To ensure an optimal ad experience, publishers should use the MoPub 5.8.0+ SDK and unified banner ad units. If you are using a pre-5.8.0 MoPub SDK or unable to pass the safe area in the 5.8.0 MoPub SDK, check your ad unit setup in the Advanced Options section on the MoPub UI (more info at https://developers.mopub.com/publishers/ui/apps/manage-ad-units/#create-an-ad-unit).
+
   * 7.48.0.0
     * This version of the adapters has been certified with AdMob 7.48.0.
 
